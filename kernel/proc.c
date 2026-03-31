@@ -15,6 +15,13 @@ struct proc *initproc;
 int nextpid = 1;
 struct spinlock pid_lock;
 
+// Carbon-related globals
+int current_carbon = 0;
+int carbon_history[HISTORY_SIZE];
+int history_index = 0;
+int predicted_carbon = 0;
+struct spinlock carbon_lock;
+
 extern void forkret(void);
 static void freeproc(struct proc *p);
 
@@ -51,6 +58,7 @@ procinit(void)
   
   initlock(&pid_lock, "nextpid");
   initlock(&wait_lock, "wait_lock");
+  initlock(&carbon_lock, "carbon");
   for(p = proc; p < &proc[NPROC]; p++) {
       initlock(&p->lock, "proc");
       p->state = UNUSED;
@@ -687,4 +695,20 @@ procdump(void)
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
+}
+
+// Update carbon intensity and predict future value
+void
+update_carbon(int new_carbon)
+{
+  acquire(&carbon_lock);
+  current_carbon = new_carbon;
+  carbon_history[history_index] = new_carbon;
+  history_index = (history_index + 1) % HISTORY_SIZE;
+  int sum = 0;
+  for(int i = 0; i < HISTORY_SIZE; i++) {
+    sum += carbon_history[i];
+  }
+  predicted_carbon = sum / HISTORY_SIZE;
+  release(&carbon_lock);
 }

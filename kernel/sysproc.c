@@ -107,3 +107,12 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+uint64
+sys_updatecarbon(void)
+{
+  int carbon;
+  argint(0, &carbon);
+  update_carbon(carbon);
+  return 0;
+}

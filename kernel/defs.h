@@ -91,6 +91,7 @@ void            setkilled(struct proc*);
 struct cpu*     mycpu(void);
 struct proc*    myproc();
 void            procinit(void);
+void            update_carbon(int);
 void            scheduler(void) __attribute__((noreturn));
 void            sched(void);
 void            sleep(void*, struct spinlock*);
