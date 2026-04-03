@@ -154,6 +154,10 @@ found:
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
 
+  // Initialize carbon-aware scheduling fields
+  p->urgency = MEDIUM;
+  p->deadline = 0;
+
   return p;
 }
 
@@ -445,21 +449,43 @@ scheduler(void)
     intr_on();
     intr_off();
 
+    // Read carbon intensity for scheduling decisions
+    acquire(&carbon_lock);
+    int carbon = current_carbon;
+    int pred_carbon = predicted_carbon;
+    release(&carbon_lock);
+    
+    // High carbon threshold (can be tuned)
+    int carbon_threshold = 50;
+
     int found = 0;
     for(p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
       if(p->state == RUNNABLE) {
-        // Switch to chosen process.  It is the process's job
-        // to release its lock and then reacquire it
-        // before jumping back to us.
-        p->state = RUNNING;
-        c->proc = p;
-        swtch(&c->context, &p->context);
+        // Carbon-aware scheduling logic:
+        // HIGH urgency: always run
+        // LOW urgency + high carbon: defer
+        // Otherwise: run normally
+        int should_run = 1;
+        
+        if(p->urgency == LOW && carbon > carbon_threshold) {
+          // Low urgency process during high carbon - defer
+          should_run = 0;
+        }
+        
+        if(should_run) {
+          // Switch to chosen process.  It is the process's job
+          // to release its lock and then reacquire it
+          // before jumping back to us.
+          p->state = RUNNING;
+          c->proc = p;
+          swtch(&c->context, &p->context);
 
-        // Process is done running for now.
-        // It should have changed its p->state before coming back.
-        c->proc = 0;
-        found = 1;
+          // Process is done running for now.
+          // It should have changed its p->state before coming back.
+          c->proc = 0;
+          found = 1;
+        }
       }
       release(&p->lock);
     }
@@ -711,4 +737,24 @@ update_carbon(int new_carbon)
   }
   predicted_carbon = sum / HISTORY_SIZE;
   release(&carbon_lock);
+}
+
+// Set process urgency level for carbon-aware scheduling
+void
+set_process_urgency(struct proc *p, int level)
+{
+  if(level >= LOW && level <= HIGH) {
+    acquire(&p->lock);
+    p->urgency = level;
+    release(&p->lock);
+  }
+}
+
+// Set process deadline for carbon-aware scheduling
+void
+set_process_deadline(struct proc *p, uint64 deadline)
+{
+  acquire(&p->lock);
+  p->deadline = deadline;
+  release(&p->lock);
 }

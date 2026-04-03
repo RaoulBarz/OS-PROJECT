@@ -92,6 +92,8 @@ struct cpu*     mycpu(void);
 struct proc*    myproc();
 void            procinit(void);
 void            update_carbon(int);
+void            set_process_urgency(struct proc*, int);
+void            set_process_deadline(struct proc*, uint64);
 void            scheduler(void) __attribute__((noreturn));
 void            sched(void);
 void            sleep(void*, struct spinlock*);

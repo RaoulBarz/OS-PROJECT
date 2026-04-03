@@ -116,3 +116,21 @@ sys_updatecarbon(void)
   update_carbon(carbon);
   return 0;
 }
+
+uint64
+sys_seturgency(void)
+{
+  int urgency;
+  argint(0, &urgency);
+  set_process_urgency(myproc(), urgency);
+  return 0;
+}
+
+uint64
+sys_setdeadline(void)
+{
+  uint64 deadline;
+  argaddr(0, &deadline);
+  set_process_deadline(myproc(), deadline);
+  return 0;
+}

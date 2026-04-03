@@ -25,6 +25,8 @@ char* sys_sbrk(int,int);
 int pause(int);
 int uptime(void);
 int updatecarbon(int);
+int seturgency(int);
+int setdeadline(uint64);
 
 // ulib.c
 int stat(const char*, struct stat*);
