@@ -3,6 +3,7 @@
 #include "memlayout.h"
 #include "riscv.h"
 #include "defs.h"
+#include "types.h"
 
 //
 // the riscv Platform Level Interrupt Controller (PLIC).
