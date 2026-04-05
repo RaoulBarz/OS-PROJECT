@@ -1,3 +1,12 @@
+#include "types.h"
+#include "param.h"
+#include "riscv.h"
+#include "spinlock.h"
+#include "defs.h"
+#include "types.h"
+#include "sleeplock.h"
+#include "fs.h"
+#include "buf.h"
 // Buffer cache.
 //
 // The buffer cache is a linked list of buf structures holding
@@ -14,14 +23,6 @@
 //     so do not keep them longer than necessary.
 
 
-#include "types.h"
-#include "param.h"
-#include "spinlock.h"
-#include "sleeplock.h"
-#include "riscv.h"
-#include "defs.h"
-#include "fs.h"
-#include "buf.h"
 
 struct {
   struct spinlock lock;

@@ -42,6 +42,4 @@ entry("getpid");
 entry("sbrk");
 entry("pause");
 entry("uptime");
-entry("updatecarbon");
-entry("seturgency");
-entry("setdeadline");
+entry("getcarbon");
