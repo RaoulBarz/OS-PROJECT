@@ -16,12 +16,18 @@ struct proc *initproc;
 int nextpid = 1;
 struct spinlock pid_lock;
 
-// Carbon-related globals
-int current_carbon = 0;
-int carbon_history[HISTORY_SIZE];
-int history_index = 0;
-int predicted_carbon = 0;
-struct spinlock carbon_lock;
+// Deferred-task queue (Feature 4): low-urgency processes sleep on DEFERRED_CHAN
+static char deferred_sleep_mem;
+static void *const DEFERRED_CHAN = &deferred_sleep_mem;
+static struct proc *deferq_head;
+static struct proc *deferq_tail;
+static struct spinlock deferq_lock;
+
+static void defer_enqueue(struct proc *p);
+static void defer_remove(struct proc *p);
+static void defer_wakeup_all(void);
+static int should_defer(struct proc *p);
+static void defer_periodic_check(void);
 
 extern void forkret(void);
 static void freeproc(struct proc *p);
@@ -55,15 +61,12 @@ void procinit(void) {
 
   initlock(&pid_lock, "nextpid");
   initlock(&wait_lock, "wait_lock");
+  initlock(&deferq_lock, "deferq");
+  deferq_head = deferq_tail = 0;
   for (p = proc; p < &proc[NPROC]; p++) {
     initlock(&p->lock, "proc");
     p->state = UNUSED;
     p->kstack = KSTACK((int)(p - proc));
-  initlock(&carbon_lock, "carbon");
-  for(p = proc; p < &proc[NPROC]; p++) {
-      initlock(&p->lock, "proc");
-      p->state = UNUSED;
-      p->kstack = KSTACK((int) (p - proc));
   }
 }
 
@@ -148,6 +151,7 @@ found:
   // Initialize carbon-aware scheduling fields
   p->urgency = MEDIUM;
   p->deadline = 0;
+  p->defer_next = 0;
 
   return p;
 }
@@ -266,6 +270,11 @@ int kfork(void) {
     return -1;
   }
   np->sz = p->sz;
+
+  acquire(&p->lock);
+  np->urgency = p->urgency;
+  np->deadline = p->deadline;
+  release(&p->lock);
 
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
@@ -399,6 +408,118 @@ int kwait(uint64 addr) {
   }
 }
 
+static void
+defer_enqueue(struct proc *p)
+{
+  acquire(&deferq_lock);
+  p->defer_next = 0;
+  if (deferq_tail)
+    deferq_tail->defer_next = p;
+  else
+    deferq_head = p;
+  deferq_tail = p;
+  release(&deferq_lock);
+}
+
+static void
+defer_remove(struct proc *p)
+{
+  struct proc *pp, *prev;
+
+  acquire(&deferq_lock);
+  prev = 0;
+  for (pp = deferq_head; pp; prev = pp, pp = pp->defer_next) {
+    if (pp == p) {
+      if (prev)
+        prev->defer_next = p->defer_next;
+      else
+        deferq_head = p->defer_next;
+      if (deferq_tail == p)
+        deferq_tail = prev;
+      p->defer_next = 0;
+      break;
+    }
+  }
+  release(&deferq_lock);
+}
+
+static void
+defer_wakeup_all(void)
+{
+  struct proc *p;
+
+  wakeup(DEFERRED_CHAN);
+  acquire(&deferq_lock);
+  deferq_head = deferq_tail = 0;
+  for (p = proc; p < &proc[NPROC]; p++)
+    p->defer_next = 0;
+  release(&deferq_lock);
+}
+
+// Low urgency may be deferred when carbon is high or forecast to fall (Feature 3).
+static int
+should_defer(struct proc *p)
+{
+  int cur, pred;
+
+  if (p->urgency != LOW)
+    return 0;
+
+  acquire(&tickslock);
+  uint t = ticks;
+  release(&tickslock);
+
+  if (p->deadline != 0 && t + GREENOS_DEADLINE_SLACK >= p->deadline)
+    return 0;
+
+  cur = get_carbon();
+  pred = get_predicted_carbon();
+
+  if (cur >= GREENOS_HIGH_CARBON)
+    return 1;
+  if (cur > pred + GREENOS_PRED_DROP_GAP && cur >= GREENOS_DEFER_FLOOR)
+    return 1;
+  return 0;
+}
+
+static void
+defer_periodic_check(void)
+{
+  int cur, pred;
+  uint t;
+  struct proc *p;
+
+  cur = get_carbon();
+  pred = get_predicted_carbon();
+  acquire(&tickslock);
+  t = ticks;
+  release(&tickslock);
+
+  if (cur < GREENOS_CARBON_OK_BELOW) {
+    defer_wakeup_all();
+    return;
+  }
+  if (pred > cur + GREENOS_PRED_RISE_GAP && cur < GREENOS_WAKE_LOW_CARBON) {
+    defer_wakeup_all();
+    return;
+  }
+  if (t % GREENOS_STARVE_INTERVAL == 0 && deferq_head) {
+    defer_wakeup_all();
+    return;
+  }
+
+  for (p = proc; p < &proc[NPROC]; p++) {
+    acquire(&p->lock);
+    int need = p->deadline != 0 && t + GREENOS_DEADLINE_SLACK >= p->deadline &&
+               p->state == SLEEPING && p->chan == DEFERRED_CHAN;
+    release(&p->lock);
+    if (need) {
+      defer_wakeup_all();
+      return;
+    }
+  }
+}
+
 // Per-CPU process scheduler.
 // Each CPU calls scheduler() after setting itself up.
 // Scheduler never returns.  It loops, doing:
@@ -420,11 +541,19 @@ void scheduler(void) {
     intr_on();
     intr_off();
     sensor_update();
+    defer_periodic_check();
 
     int found = 0;
     for (p = proc; p < &proc[NPROC]; p++) {
       acquire(&p->lock);
       if (p->state == RUNNABLE) {
+        if (should_defer(p)) {
+          p->state = SLEEPING;
+          p->chan = DEFERRED_CHAN;
+          defer_enqueue(p);
+          release(&p->lock);
+          continue;
+        }
         // Switch to chosen process.  It is the process's job
         // to release its lock and then reacquire it
         // before jumping back to us.
@@ -432,11 +561,10 @@ void scheduler(void) {
         c->proc = p;
         swtch(&c->context, &p->context);
 
-          // Process is done running for now.
-          // It should have changed its p->state before coming back.
-          c->proc = 0;
-          found = 1;
-        }
+        // Process is done running for now.
+        // It should have changed its p->state before coming back.
+        c->proc = 0;
+        found = 1;
       }
       release(&p->lock);
     }
@@ -572,6 +700,8 @@ int kkill(int pid) {
     if (p->pid == pid) {
       p->killed = 1;
       if (p->state == SLEEPING) {
+        if (p->chan == DEFERRED_CHAN)
+          defer_remove(p);
         // Wake process from sleep().
         p->state = RUNNABLE;
       }
@@ -645,22 +775,6 @@ void procdump(void) {
     printf("%d %s %s", p->pid, state, p->name);
     printf("\n");
   }
-}
-
-// Update carbon intensity and predict future value
-void
-update_carbon(int new_carbon)
-{
-  acquire(&carbon_lock);
-  current_carbon = new_carbon;
-  carbon_history[history_index] = new_carbon;
-  history_index = (history_index + 1) % HISTORY_SIZE;
-  int sum = 0;
-  for(int i = 0; i < HISTORY_SIZE; i++) {
-    sum += carbon_history[i];
-  }
-  predicted_carbon = sum / HISTORY_SIZE;
-  release(&carbon_lock);
 }
 
 // Set process urgency level for carbon-aware scheduling

@@ -108,5 +108,6 @@ struct proc {
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
   enum urgency_level urgency;  // Process urgency for carbon-aware scheduling
-  uint64 deadline;             // Process deadline (0 if no deadline)
+  uint64 deadline;             // Process deadline in ticks (0 if none)
+  struct proc *defer_next;     // Next in deferred-task queue (kernel only)
 };
