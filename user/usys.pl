@@ -43,3 +43,7 @@ entry("sbrk");
 entry("pause");
 entry("uptime");
 entry("getcarbon");
+entry("updatecarbon");
+entry("seturgency");
+entry("setdeadline");
+entry("getpredicted");

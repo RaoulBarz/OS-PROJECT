@@ -25,6 +25,10 @@ char *sys_sbrk(int, int);
 int pause(int);
 int uptime(void);
 int getcarbon(void);
+void updatecarbon(int);
+void seturgency(int);
+void setdeadline(uint64);
+int getpredicted(void);
 
 // ulib.c
 int stat(const char *, struct stat *);

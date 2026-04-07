@@ -88,6 +88,10 @@ extern uint64 sys_link(void);
 extern uint64 sys_mkdir(void);
 extern uint64 sys_close(void);
 extern uint64 sys_getcarbon(void);
+extern uint64 sys_updatecarbon(void);
+extern uint64 sys_seturgency(void);
+extern uint64 sys_setdeadline(void);
+extern uint64 sys_getpredicted(void);
 
 // An array mapping syscall numbers from syscall.h
 // to the function that handles the system call.
@@ -102,7 +106,9 @@ static uint64 (*syscalls[])(void) = {
     [SYS_open] sys_open,     [SYS_write] sys_write,
     [SYS_mknod] sys_mknod,   [SYS_unlink] sys_unlink,
     [SYS_link] sys_link,     [SYS_mkdir] sys_mkdir,
-    [SYS_close] sys_close,   [SYS_getcarbon] sys_getcarbon,
+    [SYS_close] sys_close,       [SYS_getcarbon] sys_getcarbon,
+    [SYS_updatecarbon] sys_updatecarbon, [SYS_seturgency] sys_seturgency,
+    [SYS_setdeadline] sys_setdeadline, [SYS_getpredicted] sys_getpredicted,
 };
 
 void syscall(void) {

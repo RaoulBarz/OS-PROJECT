@@ -90,3 +90,26 @@ uint64 sys_uptime(void) {
 }
 
 uint64 sys_getcarbon(void) { return get_carbon(); }
+
+uint64 sys_updatecarbon(void) {
+  int v;
+  argint(0, &v);
+  update_carbon(v);
+  return 0;
+}
+
+uint64 sys_seturgency(void) {
+  int level;
+  argint(0, &level);
+  set_process_urgency(myproc(), level);
+  return 0;
+}
+
+uint64 sys_setdeadline(void) {
+  uint64 d;
+  argaddr(0, &d);
+  set_process_deadline(myproc(), d);
+  return 0;
+}
+
+uint64 sys_getpredicted(void) { return get_predicted_carbon(); }

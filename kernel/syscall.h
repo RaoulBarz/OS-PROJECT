@@ -21,3 +21,7 @@
 #define SYS_mkdir 20
 #define SYS_close 21
 #define SYS_getcarbon 22
+#define SYS_updatecarbon 23
+#define SYS_seturgency 24
+#define SYS_setdeadline 25
+#define SYS_getpredicted 26
