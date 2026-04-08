@@ -21,10 +21,9 @@ banner(const char *title)
 }
 
 /*
- * progress_lines: each iteration prints uptime() = global tick count.
- * ticks_since_last = how many timer ticks passed between two prints.
- * - Large jump: this process often was NOT running (e.g. deferred) while ticks advanced.
- * - Same uptime on several lines: the busy loop ran many times within one tick.
+ * progress_lines: one print per scheduling round-trip via pause(1).
+ * ticks_since_last = timer ticks between prints (often ~1 on HIGH; larger on LOW when deferred).
+ * The old busy-spin printed many lines inside one tick, hiding deferral.
  */
 static void
 progress_lines(const char *tag, int n)
@@ -32,8 +31,10 @@ progress_lines(const char *tag, int n)
   int i;
   int prev_uptime = -1;
 
-  printf("  Legend: uptime = global tick counter. ticks_since_last = uptime - previous uptime.\n");
-  printf("  Large ticks_since_last on LOW urgency = time spent NOT running (deferral).\n\n");
+  if (n > 1) {
+    printf("  Legend: uptime = global tick counter. ticks_since_last = uptime - previous uptime.\n");
+    printf("  Large ticks_since_last on LOW urgency = time spent NOT running (deferral).\n\n");
+  }
 
   for (i = 0; i < n; i++) {
     int t = uptime();
@@ -42,16 +43,13 @@ progress_lines(const char *tag, int n)
       printf("  ticks_since_last=%d", t - prev_uptime);
     printf("\n");
     prev_uptime = t;
-    volatile int j;
-    for (j = 0; j < 400000; j++)
-      ;
+    pause(1);
   }
 }
 
 int
 main(int argc, char *argv[])
 {
-  int pid;
   int i;
   int dl;
 
@@ -87,48 +85,21 @@ main(int argc, char *argv[])
   /* [3][4] LOW */
   banner("[3][4] LOW urgency + fixed high carbon (80)");
   printf("WHAT THIS SHOWS\n");
-  printf("  updatecarbon(80) fixes intensity high. seturgency(LOW) allows deferral.\n");
-  printf("  You should see some LARGE ticks_since_last: you were not running that whole time.\n\n");
+  printf("  updatecarbon(80) sets high intensity; seturgency(LOW) may be deferred under policy.\n");
+  printf("  Two lines: step 1 shows ticks_since_last after pause(1) between prints.\n\n");
   updatecarbon(80);
   seturgency(U_LOW);
-  progress_lines("LOW", 18);
+  progress_lines("LOW", 2);
   printf("END LOW SECTION\n\n");
 
   /* [3] HIGH */
   banner("[3] HIGH urgency + same carbon (still 80)");
   printf("WHAT THIS SHOWS\n");
-  printf("  HIGH urgency is not deferred by the carbon policy. Steps should track ticks\n");
-  printf("  more tightly than LOW (fewer huge gaps).\n\n");
+  printf("  Same carbon; HIGH urgency is not deferred the same way as LOW.\n");
+  printf("  Two lines: compare step 1 ticks_since_last to the LOW block.\n\n");
   seturgency(U_HIGH);
-  progress_lines("HIGH", 18);
-  printf("END HIGH SECTION (compare ticks_since_last to LOW block above)\n\n");
-
-  /* Sequential child/parent */
-  banner("[3][4] One process at a time: child LOW, then parent HIGH");
-  printf("WHAT THIS SHOWS\n");
-  printf("  Same high carbon. Child runs alone with pause(1) between lines = ~1 tick/step.\n");
-  printf("  Parent runs after child exits. No garbled console. Compare child vs parent speed.\n\n");
-  updatecarbon(82);
-  pid = fork();
-  if (pid == 0) {
-    seturgency(U_LOW);
-    printf("--- child (LOW), 25 lines, pause(1) each ---\n");
-    for (i = 0; i < 25; i++) {
-      printf("  child LOW  i=%d uptime=%d\n", i, uptime());
-      pause(1);
-    }
-    exit(0);
-  }
-  wait(0);
-
-  seturgency(U_HIGH);
-  updatecarbon(82);
-  printf("--- parent (HIGH), 25 lines, pause(1) each ---\n");
-  for (i = 0; i < 25; i++) {
-    printf("  parent HIGH i=%d uptime=%d\n", i, uptime());
-    pause(1);
-  }
-  printf("END SEQUENTIAL SECTION\n\n");
+  progress_lines("HIGH", 2);
+  printf("END HIGH SECTION (compare step 1 ticks_since_last to LOW)\n\n");
 
   /* Deadline */
   banner("[3][4] Deadline while LOW + high carbon");
